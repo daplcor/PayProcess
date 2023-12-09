@@ -1,0 +1,18 @@
+(load "./v2/marmalade.repl")
+(print "We made it through loading")
+
+(begin-tx)
+(env-keys ["kai-mint-gov"])
+(env-data
+    {
+        "kai-mint-gov": {
+            "keys": [
+              "kai-mint-gov"
+            ],
+            "pred": "keys-any"
+          }
+    }
+    )
+(commit-tx)
+
+(load "./mint.pact")

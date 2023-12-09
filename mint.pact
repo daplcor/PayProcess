@@ -36,7 +36,6 @@
         (id:string (hash {'payer:payer, 'amount:amount, 'date:date, 'guard:payerGuard}))
     )
     ; we need to add the contract to repl for zusd, replace second coin
-    (util.guards.enforce-or (= coin fungible)(= coin fungible))
     (insert payments id {
         'id: id,
         'payer: payer,

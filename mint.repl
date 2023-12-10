@@ -10,9 +10,43 @@
               "kai-mint-gov"
             ],
             "pred": "keys-any"
-          }
-    }
+          },
+          "kai-mint-bank": {
+            "keys": [
+              "bank-key"
+            ],
+            "pred": "keys-any"
+          },
+          "upgrade": false,
+
+    "pay-data": {
+        "payer": "bob",
+        "payerGuard": {
+            "keys": ["bob-key"],
+            "pred": "keys-any"
+        },
+        "amount": 1.0,
+    "fungible": coin
+    }}
     )
 (commit-tx)
 
+(begin-tx)
 (load "./mint.pact")
+(commit-tx)
+
+(begin-tx "Add Bank Account")
+(env-keys ["kai-mint-gov"])
+(coin.create-account "KAIBANK" (read-keyset "kai-mint-bank"))
+(free.kai-mint.update-bank "BANK" "KAIBANK")
+ (commit-tx)
+
+ (begin-tx "Initiate payment #1")
+ (env-keys ["bob-key"])
+ (env-sigs [
+      { 'key: "bob-key"
+    , 'caps: [
+      (coin.TRANSFER "bob" "KAIBANK" 1.0)]  
+    }])
+ (free.kai-mint.pay (read-msg "pay-data"))
+ (commit-tx)

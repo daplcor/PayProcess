@@ -1,16 +1,19 @@
 (namespace "free")
 
 (define-keyset "free.kai-mint-gov" (read-keyset "kai-mint-gov"))
+(define-keyset "free.kai-mint-bank" (read-keyset "kai-mint-bank"))
 
-(module kai-mint gov
+(module kai-mint GOV
     
-    (defcap gov ()
+    (defcap GOV ()
     (enforce-guard (keyset-ref-guard "free.kai-mint-gov" ))
     )
 
     (defcap MINTPROCESS ()
     true
     )
+
+    (use marmalade-v2.ledger)
 
 ; Lets revisit to make sure this can handle off chain onboarding
 ; of payments with stripe or other processors.  
@@ -34,7 +37,10 @@
         (fungible:module{fungible-v2} (at "fungible" pay-data))
         (date:time (curr-time))
         (id:string (hash {'payer:payer, 'amount:amount, 'date:date, 'guard:payerGuard}))
+        (bank:string (get-bank))
     )
+    (enforce (= coin fungible)false)
+    (fungible::transfer payer bank amount)
     ; we need to add the contract to repl for zusd, replace second coin
     (insert payments id {
         'id: id,
@@ -52,79 +58,141 @@ true
 ; We will need to compartmentalize the information in here and figure out a clean
 ; method to take a payment, record the successful state for minting, and handle
 ; return or release of payments from the escrow.  Placeholders for now
+;  (defpact run-payment:bool (pay-data:object mint-data:object)
+;   (step-with-rollback
+;      ;; Step 1: Send a payment to escrow
+;      (pay pay-data)
+;      "yay"
+;      )
+;      (step 
+;          ;; Step 1: Mint the NFT
+;  "yay"
+;          )
+;   )
+
 (defpact run-payment:bool (pay-data:object mint-data:object)
- (step-with-rollback
-    ;; Step 1: Send a payment to escrow
-    (pay pay-data)
-    "yay"
+@doc "Handles the payment and minting process in sequential steps."
+(step-with-rollback
+    (let* (
+        (payment-id:string (pay pay-data)) 
+        (payment-record (get-payment-info payment-id)) 
+        (valid-payment (validate-payment payment-record)) 
     )
-    (step 
-        ;; Step 1: Mint the NFT
-"yay"
-        )
- )
+    (enforce valid-payment "Payment validation failed.")
+    (transfer-to-escrow payment-record) ; Function to handle transfer to escrow
+    ;payment-id ; Continue with payment-id for next step 
+    "pay"
+    
+    (refund-payment payment-record) ; Function to handle refund in case of rollback
+    ) "pay"
+)
+(step 
+    (let* (
+        (payment-id:string (resume)) 
+        (mint-success:bool (create-marmalade-token mint-data payment-id)) 
+    )
+    (enforce mint-success "Minting of NFT failed.")
+    (release-funds-from-escrow payment-id) ; Function to handle fund release from escrow
+    "Minting successful"
+    )
+)
+)
 
 ; Mint Functions
 
 ; Lets modify this further so it works for us
-;  (defun create-marmalade-token:string
-;      (
-;        uri:string
-;        precision:integer 
-;        collection:string
-;        marmToken:integer
-;        policies:[module{kip.token-policy-v2}]
-;        id:string
-;      )
-;      @doc "Requires mint cap. Creates the token on marmalade using the supplied data"
-;      ; We can craft a new cap for this, just pass true for now
-;    (with-capability (MINTPROCESS)
-;      (with-read payments id
-;      {
-;        "id":= id
-;        , "minted":= minted
-;      }
-;      (enforce (= minted false)
-;      "Can't mint this token more than once"
-;      )
-;          (let*
-;          (
-;            (guard:guard (at 'creatorGuard (read collections collection ['creatorGuard ])))
-;            (mintto:guard (at "guard" (coin.details account)))
-;            (token-id:string (create-token-id {'precision:precision, 'policies: policies, 'uri:uri} guard))        
-;          )
-;          ; This is required to create an actual NFT Token
-;          (create-token
-;            token-id
-;            precision
-;            uri
-;            policies
-;            guard
-;          )
-;          ; This is where the actual NFT is minted on the ledger.
-;          (marmalade-v2.ledger.mint
-;            token-id
-;            account
-;            mintto
-;            1.0
-;          )
+(defun create-marmalade-token:string
+    (
+     mint-data:object
+     id:string
+    )
+    @doc "Requires mint cap. Creates the token on marmalade using the supplied data"
+    ; We can craft a new cap for this, just pass true for now
+  (with-capability (MINTPROCESS)
+    (with-read payments id
+    {
+      "id":= id
+      , "minted":= minted
+    }
+    (enforce (= minted false)
+    "Can't mint this token more than once"
+    )
+        (let*
+        (
+          (token-id:string (at "token-id" mint-data))
+          (uri:string (at "uri" mint-data))
+          (policies (at "policies" mint-data))
+          (guard:guard (at "pay-guard" mint-data))
+          (precision 0)
+          (mint-to-account:string (at "mint-to-account" mint-data))
+          (mint-to-guard:guard (at "guard" (coin.details mint-to-account)))
+          (token-id:string (create-token-id {'precision:precision, 'policies: policies, 'uri:uri} guard))        
+        )
+        ; This is required to create an actual NFT Token
+        (create-token
+          token-id
+          precision
+          uri
+          policies
+          guard
+        )
+        ; This is where the actual NFT is minted on the ledger.
+        (mint
+          token-id
+          mint-to-account
+          mint-to-guard
+          1.0
+        )
   
-;          (update payments id
-;            { "minted": true }          
-;          )
+        (update payments id
+          { "minted": true }          
+        )
   
-;          ; Should we create this table structure? 
-;          (insert nft-table token-id
-;            {
-;              "id": token-id,
-;              "owner": account
-;            }
-;          )
-;          token-id
-;        )
-;      )
-;     )
-;    )
+        ; Should we create this table structure? 
+        ;  (insert nft-table token-id
+        ;    {
+        ;      "id": token-id,
+        ;      "owner": account
+        ;    }
+        ;  )
+        token-id
+      )
+    )
+   )
+  )
+
+; Utility functions
+
+(defun get-payment-info:object{pay-schema} (payment-id:string)
+    @doc "Retrieves payment information based on the payment ID."
+    (read payments payment-id)
+)
+
+(defun validate-payment:bool (payment-record:object{pay-schema})
+    @doc "Validates the payment details."
+    (and (not (= payment-record {})) ; Check if payment record is not empty
+         (not (at 'minted payment-record))) ; Ensure the payment has not been used for minting yet
+)
+
+
+(defun transfer-to-escrow:bool (payment-record:object{pay-schema})
+    @doc "Transfers funds to the escrow account."
+    ; Implement logic to transfer funds to the escrow account
+    true ; Placeholder return value
+)
+
+(defun refund-payment:bool (payment-record:object{pay-schema})
+    @doc "Handles refund in case of rollback."
+    ; Implement our logic to refund payment
+    true ; Placeholder return value
+)
+
+(defun release-funds-from-escrow:bool (payment-id:string)
+    @doc "Handles fund release from escrow upon successful minting."
+    ; Implement our logic to release funds from escrow
+    true ; Placeholder return value
+)
+
 
 ; Escrow functions 
 
@@ -144,4 +212,43 @@ true)
  (at 'block-time (chain-data))
  )
 
+
+; Bank Info
+
+(defschema bank-info
+    @doc "Stores string values"
+    value:string
+  )
+  (deftable bankInfo:{bank-info})
+
+  (defun update-bank (bankId:string value:string)
+    @doc "Updates the account for the bank"
+
+    (with-capability (GOV)
+      (write bankInfo bankId
+        { "value": value }
+      )
+    )
+  )
+
+  (defun get-bank-value:string (bankId:string)
+    @doc "Gets the value with the provided id"
+    (at "value" (read bankInfo bankId ["value"]))
+  )
+
+  (defconst BANK_ACCOUNT:string "BANK")
+  
+  (defun get-bank:string ()
+    (get-bank-value BANK_ACCOUNT)
+  )
+
+  (defun get ()
+  (select payments (constantly true)))
+
 )
+(if (read-msg "upgrade")
+"Upgrade Complete"
+[
+(create-table payments)
+(create-table bankInfo)
+])

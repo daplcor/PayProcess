@@ -27,6 +27,34 @@
     )
 (deftable payments:{pay-schema})
 
+
+; Sale Process 
+
+(defcap PAYCAP:bool
+    (payment-id:string payer:string amount:decimal sale-id:string)
+    @doc "Wrapper cap/event of SALE for event processing"
+    @event
+    (enforce (> amount 0.0) "Amount must be positive")
+    (compose-capability (SENDPAY payment-id payer amount))
+  )
+
+  (defcap SENDPAY:bool
+    (payment-id:string payer:string amount:decimal)
+    @doc "Managed cap for PAYER to store mint funds."
+    @managed
+     ; Do we need an enforce in here?  I think we do
+    (compose-capability (DEBIT payer))
+    (compose-capability (CREDIT (escrow)))
+  )
+
+(defun account-guard:guard (account:string)
+  @doc "Retrieves the guard associated with the given account."
+  (let* ((details (coin.details account))
+         (guard (at "guard" details)))
+    guard
+  )
+)
+
 (defun pay:bool (pay-data:object)
 @doc "Create a new payment for minting"
 
@@ -74,18 +102,18 @@ true
 @doc "Handles the payment and minting process in sequential steps."
 (step-with-rollback
     (let* (
-        (payment-id:string (pay pay-data)) 
+        (payment-id:string (pay pay-data))
         (payment-record (get-payment-info payment-id)) 
         (valid-payment (validate-payment payment-record)) 
     )
     (enforce valid-payment "Payment validation failed.")
-    (transfer-to-escrow payment-record) ; Function to handle transfer to escrow
-    ;payment-id ; Continue with payment-id for next step 
-    "pay"
-    
-    (refund-payment payment-record) ; Function to handle refund in case of rollback
-    ) "pay"
-)
+    (with-capability (SALE payment-id (at "payer" pay-data) (at "amount" pay-data) (pact-id))
+      (transfer-to-escrow payment-record)) ; Function to handle transfer to escrow
+    payment-id ; Continue with payment-id for next step 
+    )
+    (let ((payment-record (get-payment-info (resume))))
+      (refund-payment payment-record)) ; Function to handle refund in case of rollback
+  )
 (step 
     (let* (
         (payment-id:string (resume)) 
@@ -177,6 +205,8 @@ true
 
 (defun transfer-to-escrow:bool (payment-record:object{pay-schema})
     @doc "Transfers funds to the escrow account."
+    
+    ; (transfer payer (escrow) amount)
     ; Implement logic to transfer funds to the escrow account
     true ; Placeholder return value
 )

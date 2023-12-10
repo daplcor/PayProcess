@@ -98,7 +98,7 @@ true
 ;          )
 ;   )
 
-(defpact run-payment:bool (pay-data:object mint-data:object)
+(defpact run-payment:bool (pay-data:object)
 @doc "Handles the payment and minting process in sequential steps."
 (step-with-rollback
     (let* (
@@ -116,7 +116,16 @@ true
   )
 (step 
     (let* (
-        (payment-id:string (resume)) 
+        (payment-id:string (resume))
+        (mint-data:object (read-msg "mint-data"))
+        (token-id:string (at "token-id" mint-data))
+        (uri:string (at "uri" mint-data))
+        (policies (at "policies" mint-data))
+        (pay-guard:guard (at "pay-guard" mint-data)) 
+        (precision:integer 0)
+        (mint-to-account:string (at "mint-to-account" mint-data))
+        (mint-to-guard:guard (at "guard" (coin.details mint-to-account)))
+        (new-token-id:string (create-token-id {'precision:precision, 'policies: policies, 'uri:uri} pay-guard))        
         (mint-success:bool (create-marmalade-token mint-data payment-id)) 
     )
     (enforce mint-success "Minting of NFT failed.")

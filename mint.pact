@@ -115,17 +115,11 @@ true
       (refund-payment payment-record)) ; Function to handle refund in case of rollback
   )
 (step 
+    ; We should consider storing these details in a table vs this approach.  We can store it
+    ; In our real time operations database as well, try what is faster imo.
     (let* (
         (payment-id:string (resume))
-        (mint-data:object (read-msg "mint-data"))
-        (token-id:string (at "token-id" mint-data))
-        (uri:string (at "uri" mint-data))
-        (policies (at "policies" mint-data))
-        (pay-guard:guard (at "pay-guard" mint-data)) 
-        (precision:integer 0)
-        (mint-to-account:string (at "mint-to-account" mint-data))
-        (mint-to-guard:guard (at "guard" (coin.details mint-to-account)))
-        (new-token-id:string (create-token-id {'precision:precision, 'policies: policies, 'uri:uri} pay-guard))        
+        (mint-data:object (read-msg "mint-data"))        
         (mint-success:bool (create-marmalade-token mint-data payment-id)) 
     )
     (enforce mint-success "Minting of NFT failed.")
@@ -135,6 +129,17 @@ true
 )
 )
 
+
+; ---------------------- for step 1 in case we need it--------------------
+;(token-id:string (at "token-id" mint-data))
+;(uri:string (at "uri" mint-data))
+;(policies (at "policies" mint-data))
+;(pay-guard:guard (at "pay-guard" mint-data)) 
+;(precision:integer 0)
+;(mint-to-account:string (at "mint-to-account" mint-data))
+;(mint-to-guard:guard (at "guard" (coin.details mint-to-account)))
+;(new-token-id:string (create-token-id {'precision:precision, 'policies: policies, 'uri:uri} pay-guard))
+;-------------------------------------------------------------------------
 ; Mint Functions
 
 ; Lets modify this further so it works for us
